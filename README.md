@@ -65,7 +65,8 @@ mise plugins link deterministic-port "$PWD"
 > [!TIP]
 > One can acheive this without the plugin, see [^c9baea1]
 
-[^c9baea1]:
+[^c9baea1]: The following achieves the same effect, this plugin is just sugar:
+
     ```toml
 
     [vars]
