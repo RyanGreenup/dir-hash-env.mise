@@ -37,6 +37,9 @@ mise plugins link deterministic-port "$PWD"
 1. Add the plugin to the `[env]` section of the project `mise.toml` file:
 
    ```toml
+   [plugins]
+   deterministic-port = "https://github.com/ryangreenup/dir-hash-env.mise.git"
+
    [[env]]
    '_'.file = { path = ".env.yaml" }
 
