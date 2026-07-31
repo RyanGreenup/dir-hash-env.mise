@@ -6,10 +6,97 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
-      - run: mise run lint
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install development tools
+        uses: jdx/mise-action@v2
+      - name: Run lint checks
+        run: mise run lint
+
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install development tools
+        uses: jdx/mise-action@v2
+      - name: Run integration tests
+        run: mise run test:python
+
+  release:
+    name: Release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository and tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read and validate plugin version
+        id: version
+        shell: bash
+        run: |
+          version="$(sed -n 's/^[[:space:]]*version = "\([^"]*\)",$/\1/p' metadata.lua)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "metadata.lua must contain one semantic version such as 1.2.3" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check release tag
+        id: tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if git rev-parse --verify --quiet "refs/tags/$TAG"; then
+            if [[ "$(git rev-list --max-count=1 "$TAG")" != "$GITHUB_SHA" ]]; then
+              echo "$TAG already belongs to another commit; bump PLUGIN.version in metadata.lua" >&2
+              exit 1
+            fi
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push annotated tag
+        if: steps.tag.outputs.exists == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "$TAG" --message "Release $TAG"
+          git push origin "$TAG"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "GitHub Release $TAG already exists"
+          else
+            gh release create "$TAG" --verify-tag --generate-notes --title "$TAG"
+          fi

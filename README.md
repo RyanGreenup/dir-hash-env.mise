@@ -186,7 +186,7 @@ _.deterministic-port = { path = "{{ config_root }}" }
 | `range_start` | `20000`               | Sets the first port in the range.                                                         |
 | `range_size`  | `20000`               | Sets the number of ports in the range.                                                    |
 | `path`        | Detected project path | Replaces the path that the plugin hashes.                                                 |
-| `salt`        | `""`                  | Derives another deterministic port without changing the project path.                    |
+| `salt`        | `""`                  | Derives another deterministic port without changing the project path.                     |
 
 Each environment variable name must match `[A-Za-z_][A-Za-z0-9_]*`. The
 `range_start` value must be from `1` through `65535`.
@@ -221,15 +221,13 @@ For multiple variables, it adds the array index to the first offset.
 
 ## Limits
 
-- The plugin does not reserve a port.
-- The plugin does not detect a port that another process uses.
-- Different project paths can receive the same port.
-- A moved or renamed project can receive a different port.
-- Differences in path spelling can change the port.
+- The plugin does not reserve a port or detect a port that another process uses.
+  - If a port is not available, set `salt` to a string such as `"1"`. You can
+    also select a different range or set an explicit `path` value.
+- Theoretically different project paths can receive the same port, but it's
+  unlikely.
+- A moved / renamed project will receive a different port.
 - Duplicate names in `keys` can overwrite an earlier value.
-
-If a port is not available, set `salt` to a string such as `"1"`. You can also
-select a different range or set an explicit `path` value.
 
 ## Troubleshooting
 
@@ -269,14 +267,32 @@ Run all lint checks:
 mise run lint
 ```
 
+Run the test suite in an Alpine container with Podman:
+
+```sh
+mise test
+```
+
+Run the Python integration suite directly in the current environment:
+
+```sh
+mise run test:python
+```
+
 Fix supported lint errors:
 
 ```sh
 mise run lint-fix
 ```
 
-## Notes
+### Releases
 
-### Without the Plugin
+Releases follow semantic versioning. Before merging a release-producing change
+to `main`, update `PLUGIN.version` in `metadata.lua` to a version that has not
+been tagged.
 
-Strictly speaking, you don't need this. I
+Every PR and push to `main` runs tests and afterward a release is cut and tagged
+(`v<version>`) with generated release notes.
+
+The release job fails when the metadata version already has a tag, preventing an
+existing release from being replaced.

@@ -1,0 +1,5 @@
+.git
+.serena
+.env.yaml
+.sops.yaml
+__pycache__

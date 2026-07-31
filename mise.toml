@@ -19,5 +19,12 @@ description = "Fix linting issues"
 run = "hk fix"
 
 [tasks.test]
-description = "Run the test suite"
-run = "uv run --script tests/test.py"
+description = "Run the test suite in Alpine Linux with Podman"
+run = """
+podman build --tag localhost/dir-hash-env-test --file Containerfile .
+podman run --rm --network=none localhost/dir-hash-env-test
+"""
+
+[tasks."test:python"]
+description = "Run the Python integration tests in the current environment"
+run = "python3 tests/test.py"
