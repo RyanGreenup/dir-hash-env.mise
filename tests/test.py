@@ -21,9 +21,15 @@ REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 
 
 def expected_port(
-    hash_input: str, range_start: int = 20_000, range_size: int = 20_000
+    hash_input: str,
+    range_start: int = 20_000,
+    range_size: int = 20_000,
+    salt: str = "",
 ) -> int:
-    digest = hashlib.sha256(hash_input.encode()).digest()
+    encoded_input = hash_input.encode()
+    if salt:
+        encoded_input += b"\0" + salt.encode()
+    digest = hashlib.sha256(encoded_input).digest()
     prefix = int.from_bytes(digest[:2], byteorder="big", signed=False)
     return range_start + (prefix % range_size)
 
@@ -222,6 +228,65 @@ class DeterministicPortTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(int(first), expected_port(hash_input))
 
+    def test_salt_changes_the_hash_deterministically(self) -> None:
+        hash_input = "/project/with/a/collision"
+        salt = next(
+            candidate
+            for index in range(100)
+            if expected_port(hash_input, salt=(candidate := str(index)))
+            != expected_port(hash_input)
+        )
+        project = self._new_project(
+            f"{{ path = {json.dumps(hash_input)}, salt = {json.dumps(salt)} }}"
+        )
+
+        first = self._environment(project)["PORT"]
+        second = self._environment(project)["PORT"]
+
+        self.assertEqual(int(first), expected_port(hash_input, salt=salt))
+        self.assertEqual(first, second)
+        self.assertNotEqual(int(first), expected_port(hash_input))
+
+    def test_empty_salt_matches_unsalted_hash(self) -> None:
+        hash_input = "/project/with/an/empty/salt"
+        project = self._new_project(
+            f'{{ path = {json.dumps(hash_input)}, salt = "" }}'
+        )
+
+        environment = self._environment(project)
+
+        self.assertEqual(int(environment["PORT"]), expected_port(hash_input))
+
+    def test_salt_works_with_a_custom_range(self) -> None:
+        hash_input = "/project/custom-range"
+        salt = "collision-2"
+        project = self._new_project(
+            f"{{ path = {json.dumps(hash_input)}, salt = {json.dumps(salt)}, "
+            "range_start = 50000, range_size = 500 }"
+        )
+
+        environment = self._environment(project)
+
+        self.assertEqual(
+            int(environment["PORT"]),
+            expected_port(hash_input, 50_000, 500, salt),
+        )
+
+    def test_salt_with_shell_metacharacters_is_not_executed(self) -> None:
+        marker = self.sandbox_path / "salt-command-was-executed"
+        hash_input = "/project/salted-safely"
+        salt = f"$(touch {marker})-'quoted'-$HOME"
+        project = self._new_project(
+            f"{{ path = {json.dumps(hash_input)}, salt = {json.dumps(salt)} }}"
+        )
+
+        environment = self._environment(project)
+
+        self.assertEqual(
+            int(environment["PORT"]), expected_port(hash_input, salt=salt)
+        )
+        self.assertFalse(marker.exists())
+
     def test_path_with_shell_metacharacters_is_not_executed(self) -> None:
         marker = self.sandbox_path / "command-was-executed"
         hash_input = f"project-$(touch {marker})-'quoted'-$HOME"
@@ -251,6 +316,9 @@ class DeterministicPortTests(unittest.TestCase):
         self._assert_plugin_error(
             "{ range_start = 20000.5 }", "range_start must be an integer"
         )
+
+    def test_rejects_non_string_salt(self) -> None:
+        self._assert_plugin_error("{ salt = 2 }", "salt must be a string")
 
     def test_rejects_non_integer_range_size(self) -> None:
         self._assert_plugin_error(

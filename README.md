@@ -157,6 +157,19 @@ The plugin selects the hash input in this order:
 2. The `MISE_PROJECT_ROOT` environment variable.
 3. The `PWD` environment variable.
 
+### Resolve a port collision
+
+Use `salt` to derive a different port without renaming or moving the project:
+
+```toml
+[env]
+_.deterministic-port = { salt = "1" }
+```
+
+The same project path and salt always produce the same port. If that port also
+collides, change the salt to another string. An empty salt is equivalent to not
+setting `salt`.
+
 #### Mise.toml Config Directory Directory
 
 ```toml
@@ -173,6 +186,7 @@ _.deterministic-port = { path = "{{ config_root }}" }
 | `range_start` | `20000`               | Sets the first port in the range.                                                         |
 | `range_size`  | `20000`               | Sets the number of ports in the range.                                                    |
 | `path`        | Detected project path | Replaces the path that the plugin hashes.                                                 |
+| `salt`        | `""`                  | Derives another deterministic port without changing the project path.                    |
 
 Each environment variable name must match `[A-Za-z_][A-Za-z0-9_]*`. The
 `range_start` value must be from `1` through `65535`.
@@ -182,27 +196,28 @@ in the range must not be more than `65535`.
 
 ## Port calculation
 
-The plugin calculates SHA-256 for the selected project path. It reads the first
-16 bits as an unsigned integer.
+Without a salt, the plugin calculates SHA-256 for the selected project path. A
+non-empty salt changes the hash input to the project path, a NUL byte, and the
+salt. It reads the first 16 bits of the digest as an unsigned integer.
 
 The calculation matches this TypeScript snippet:
 
 ```ts
-const range_start = 20_000;
-const range_end = 20_000;
+const rangeStart = 20_000;
+const rangeSize = 20_000;
 
 const hash = createHash("sha256")
   .update(projectDirectory)
   .digest()
   .readUInt16BE(0);
 
-const port_1 = 1 + range_start + (hash % range_end);
-const port_2 = 1 + range_start + (hash % range_end);
+const port = rangeStart + (hash % rangeSize);
 ```
 
-For multiple variables, it adds the array index to the first offset.
+For a non-empty salt, the equivalent hash input is
+`.update(projectDirectory).update("\0").update(salt)`.
 
-## Salt and Port Collisions
+For multiple variables, it adds the array index to the first offset.
 
 ## Limits
 
@@ -213,8 +228,8 @@ For multiple variables, it adds the array index to the first offset.
 - Differences in path spelling can change the port.
 - Duplicate names in `keys` can overwrite an earlier value.
 
-If a port is not available, select a different range or set an explicit `path`
-value.
+If a port is not available, set `salt` to a string such as `"1"`. You can also
+select a different range or set an explicit `path` value.
 
 ## Troubleshooting
 

@@ -42,13 +42,28 @@ local function project_path(options)
     return path
 end
 
-local function sha256_prefix(path)
-    -- Pass the path through the environment instead of interpolating it into the
-    -- command, so paths containing shell metacharacters remain safe.
-    local output = cmd.exec(
-        [[printf '%s' "$MISE_DETERMINISTIC_PORT_INPUT" | if command -v sha256sum >/dev/null 2>&1; then sha256sum; elif command -v shasum >/dev/null 2>&1; then shasum -a 256; else echo 'deterministic-port requires sha256sum or shasum' >&2; exit 1; fi]],
-        { env = { MISE_DETERMINISTIC_PORT_INPUT = path } }
-    )
+local function salt_option(options)
+    local salt = options.salt
+    if salt ~= nil and type(salt) ~= "string" then
+        error("salt must be a string")
+    end
+    return salt
+end
+
+local function sha256_prefix(path, salt)
+    -- Pass the values through the environment instead of interpolating them into
+    -- the command, so shell metacharacters remain safe. A NUL separator makes
+    -- the salted input unambiguous while leaving unsalted hashes unchanged.
+    local hash_input_command = [[printf '%s' "$MISE_DETERMINISTIC_PORT_INPUT"]]
+    local command_env = { MISE_DETERMINISTIC_PORT_INPUT = path }
+    if salt ~= nil and salt ~= "" then
+        hash_input_command = [[printf '%s\0%s' "$MISE_DETERMINISTIC_PORT_INPUT" "$MISE_DETERMINISTIC_PORT_SALT"]]
+        command_env.MISE_DETERMINISTIC_PORT_SALT = salt
+    end
+
+    local hash_command =
+        [[if command -v sha256sum >/dev/null 2>&1; then sha256sum; elif command -v shasum >/dev/null 2>&1; then shasum -a 256; else echo 'deterministic-port requires sha256sum or shasum' >&2; exit 1; fi]]
+    local output = cmd.exec(hash_input_command .. " | " .. hash_command, { env = command_env })
     local prefix = output:match("^([0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F])")
     if not prefix then
         error("failed to calculate the project path hash")
@@ -64,6 +79,7 @@ function PLUGIN:MiseEnv(ctx)
     local range_start = integer_option(options, "range_start", DEFAULT_RANGE_START)
     local range_size = integer_option(options, "range_size", DEFAULT_RANGE_SIZE)
     local keys = env_keys(options)
+    local salt = salt_option(options)
 
     if range_start < 1 or range_start > 65535 then
         error("range_start must be between 1 and 65535")
@@ -75,7 +91,7 @@ function PLUGIN:MiseEnv(ctx)
         error("the configured port range must end at or before 65535")
     end
 
-    local base_offset = sha256_prefix(project_path(options)) % range_size
+    local base_offset = sha256_prefix(project_path(options), salt) % range_size
     local result = {}
     for index, key in ipairs(keys) do
         validate_key(key)
