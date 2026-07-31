@@ -142,6 +142,8 @@ This example assigns ports from `40000` through `40999`.
 
 ### Set the hash input
 
+#### Specific
+
 Use `path` to replace the detected project path:
 
 ```toml
@@ -154,6 +156,13 @@ The plugin selects the hash input in this order:
 1. The `path` value in the plugin configuration.
 2. The `MISE_PROJECT_ROOT` environment variable.
 3. The `PWD` environment variable.
+
+#### Mise.toml Config Directory Directory
+
+```toml
+[env]
+_.deterministic-port = { path = "{{ config_root }}" }
+```
 
 ## Configuration reference
 
@@ -192,6 +201,8 @@ const port_2 = 1 + range_start + (hash % range_end);
 ```
 
 For multiple variables, it adds the array index to the first offset.
+
+## Salt and Port Collisions
 
 ## Limits
 
