@@ -1,15 +1,10 @@
 --- Plugin metadata
 --- Documentation: https://mise.jdx.dev/env-plugin-development.html
 PLUGIN = {
-    --- Plugin name (required)
     name = "deterministic-port",
-
-    --- Plugin version (required)
     version = "0.0.1",
-
-    --- Plugin description (optional)
-    description = "Sets project-specific ports derived from the project directory",
-
-    --- Minimum mise version required (optional)
+    description = "Sets stable, project-specific ports from a SHA-256 hash of the project directory",
     minMiseVersion = "2025.1.0",
+    author = "Ryan Greenup",
+    repository = "https://github.com/ryangreenup/dir-hash-env.mise",
 }

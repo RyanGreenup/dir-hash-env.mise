@@ -1,83 +1,256 @@
-# mise deterministic-port
+# Mise Deterministic Port Env Plugin
 
-A [mise environment plugin](https://mise.jdx.dev/env-plugin-development.html)
-that assigns stable, project-specific ports from the SHA-256 hash of the project
-directory.
+A [mise environment plugin](https://mise.jdx.dev/env-plugin-development.html) to
+assigns stable ports to environment variables from a SHA-256 hash of the project
+directory. By default, the plugin sets `PORT` to a value from `20000` through
+`39999`. The same project path always produces the same port.
 
-By default it sets `PORT` to a value in the inclusive range 20000–39999. The
-same directory always produces the same port, matching this TypeScript logic:
+## Requirements
 
-```ts
-const hash = createHash("sha256").update(projectDirectory).digest().readUInt16BE(0)
-const port = 20_000 + (hash % 20_000)
-```
+The plugin has these requirements:
+
+- mise `2025.1.0` or later.
+- A POSIX-compatible shell.
+- `sha256sum` or `shasum`.
+
+Linux systems commonly include `sha256sum`. macOS includes `shasum`.
 
 ## Installation
 
-Install the plugin from its Git repository (replace the URL with the repository
-where you publish it):
+Install the plugin from its Git repository:
 
 ```sh
-mise plugins install deterministic-port https://github.com/OWNER/REPOSITORY.git
+mise plugins install deterministic-port https://github.com/ryangreenup/dir-hash-env.mise.git
 ```
 
-For local development, link this checkout instead:
+For local development, link the plugin checkout:
 
 ```sh
 mise plugins link deterministic-port "$PWD"
 ```
 
-## Usage
+## Quick start
 
-Enable the default `PORT` variable in a project's `mise.toml`:
+> [!NOTE]
+> Using the `[[env]]` syntax, later values win, allowing a fallback.
 
-```toml
-[env]
-_.deterministic-port = {}
-```
+1. Add the plugin to the `[env]` section of the project `mise.toml` file:
 
-Set a different variable name:
+   ```toml
+   [[env]]
+   '_'.file = { path = ".env.yaml" }
 
-```toml
-[env]
-_.deterministic-port = { key = "DEV_PORT" }
-```
+   [[env]]
+   # Defaults to PORT otherwise
+   _.deterministic-port = { key = "DEV_PORT" }
+   [env]
+   _.deterministic-port = { keys = ["WEB_PORT", "API_PORT", "DB_PORT"] }
+   ```
 
-Set several consecutive, wrapping ports from the same project hash:
+2. Display the assigned port:
+
+   ```sh
+   mise env | grep DEV_PORT
+   ```
+
+3. Run a command with the assigned port in its environment:
+
+   ```sh
+   mise exec -- env | grep DEV_PORT
+   ```
+
+> [!TIP]
+> One can acheive this without the plugin, see [^c9baea1]
+
+[^c9baea1]:
+    ```toml
+
+    [vars]
+    project_port_base = """
+    {%- set path_hash = config_root | hash(len=8) -%}
+    {{- exec(
+    command="printf '%s' $((10000 + (0x" ~ path_hash ~ " % 19997)))"
+    ) | trim -}}
+    """
+
+    [[env]]
+    '_'.file = { path = ".env.yaml" }
+
+    [[env]]
+    VITE_DEV_PORT = "{{ vars.project_port_base | int + 1 }}"
+    VITE_PROD_PORT = "{{ vars.project_port_base | int + 2 }}"
+    PGPORT = "{{ vars.project_port_base | int + 3 }}"
+    ```
+
+    this example
+
+## Configuration
+
+### Overview
+
+1. default env var of `PORT`
+   ```toml
+   [env]
+   _.deterministic-port = { }
+   ```
+2. Single
+   ```toml
+   [env]
+   _.deterministic-port = { key = "DEV_PORT" }
+   ```
+3. Multiple
+
+   ```toml
+   [env]
+   _.deterministic-port = { keys = ["WEB_PORT", "API_PORT", "DB_PORT"] }
+   ```
+
+### Set multiple variables
+
+Use `keys` to set multiple environment variables:
 
 ```toml
 [env]
 _.deterministic-port = { keys = ["WEB_PORT", "API_PORT", "DB_PORT"] }
 ```
 
-The first key receives the hashed port. Later keys receive the following ports,
-wrapping within the configured range, so one plugin activation never assigns the
-same port twice.
+> [!NOTE]
+> The `keys` option takes precedence over `key`.
 
-### Options
+The first variable receives the hashed port. Each later variable receives the
+next port in the configured range.
 
-| Option | Default | Description |
-| --- | --- | --- |
-| `key` | `"PORT"` | A single environment variable name. Ignored when `keys` is set. |
-| `keys` | unset | A non-empty array of environment variable names. |
-| `range_start` | `20000` | First port in the allocation range. |
-| `range_size` | `20000` | Number of ports in the allocation range. |
-| `path` | `$MISE_PROJECT_ROOT` | Hash input override. Falls back to `$PWD` when mise does not expose a project root. |
+The allocation returns to the start after it reaches the end of the range. One
+activation assigns a different port to each array entry.
 
-The configured range must fit within valid TCP/UDP ports (`1`–`65535`) and be
-large enough for every requested key. The runtime needs either `sha256sum`
-(common on Linux) or `shasum` (included with macOS).
+Use a unique environment variable name for each entry.
 
-Inspect the result with:
+### Set the port range
 
-```sh
-mise env | grep PORT
-mise exec -- env | grep PORT
+Use `range_start` and `range_size` to set a different port range:
+
+```toml
+[env]
+_.deterministic-port = {
+  keys = ["WEB_PORT", "API_PORT"],
+  range_start = 40000,
+  range_size = 1000,
+}
 ```
+
+This example assigns ports from `40000` through `40999`.
+
+### Set the hash input
+
+Use `path` to replace the detected project path:
+
+```toml
+[env]
+_.deterministic-port = { path = "/shared/project-name" }
+```
+
+The plugin selects the hash input in this order:
+
+1. The `path` value in the plugin configuration.
+2. The `MISE_PROJECT_ROOT` environment variable.
+3. The `PWD` environment variable.
+
+## Configuration reference
+
+| Option        | Default               | Description                                                                               |
+| ------------- | --------------------- | ----------------------------------------------------------------------------------------- |
+| `key`         | `"PORT"`              | Sets one environment variable.                                                            |
+| `keys`        | Not set               | Sets a non-empty array of environment variables. This option takes precedence over `key`. |
+| `range_start` | `20000`               | Sets the first port in the range.                                                         |
+| `range_size`  | `20000`               | Sets the number of ports in the range.                                                    |
+| `path`        | Detected project path | Replaces the path that the plugin hashes.                                                 |
+
+Each environment variable name must match `[A-Za-z_][A-Za-z0-9_]*`. The
+`range_start` value must be from `1` through `65535`.
+
+The range must contain at least one port for each entry in `keys`. The last port
+in the range must not be more than `65535`.
+
+## Port calculation
+
+The plugin calculates SHA-256 for the selected project path. It reads the first
+16 bits as an unsigned integer.
+
+The calculation matches this TypeScript snippet:
+
+```ts
+const range_start = 20_000;
+const range_end = 20_000;
+
+const hash = createHash("sha256")
+  .update(projectDirectory)
+  .digest()
+  .readUInt16BE(0);
+
+const port_1 = 1 + range_start + (hash % range_end);
+const port_2 = 1 + range_start + (hash % range_end);
+```
+
+For multiple variables, it adds the array index to the first offset.
+
+## Limits
+
+- The plugin does not reserve a port.
+- The plugin does not detect a port that another process uses.
+- Different project paths can receive the same port.
+- A moved or renamed project can receive a different port.
+- Differences in path spelling can change the port.
+- Duplicate names in `keys` can overwrite an earlier value.
+
+If a port is not available, select a different range or set an explicit `path`
+value.
+
+## Troubleshooting
+
+### The hash command is missing
+
+If the plugin reports that it requires `sha256sum` or `shasum`, install one of
+these programs.
+
+### The project path is missing
+
+If mise cannot provide a project path, set the `path` option in the plugin
+configuration.
+
+### The port range is invalid
+
+Make sure that the range starts at a valid port. Make sure that the range ends
+at or before `65535`.
+
+Make sure that `range_size` is not less than the number of entries in `keys`.
+
+### An environment variable name is invalid
+
+Use a name that starts with a letter or an underscore. Use only letters,
+numbers, and underscores after the first character.
 
 ## Development
 
+Install the development tools:
+
 ```sh
 mise install
+```
+
+Run all lint checks:
+
+```sh
 mise run lint
 ```
+
+Fix supported lint errors:
+
+```sh
+mise run lint-fix
+```
+
+## Notes
+
+### Without the Plugin
+
+Strictly speaking, you don't need this. I
