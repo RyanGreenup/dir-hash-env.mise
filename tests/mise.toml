@@ -1,0 +1,2 @@
+[env]
+_.deterministic-port = { keys = ["WEB_PORT", "API_PORT"] }
